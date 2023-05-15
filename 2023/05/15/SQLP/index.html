@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"example.com","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="SQL Performance Tuning執行計畫概論當Query 傳送到資料庫執行時，Query Optimizer 會針對 query 語句進行計算， 怎樣的執行方式會相對比較少的成本 Cost，決定相對比較少成本的 Cost 之後就開始執行，產生執行計畫。  Link: SQL Query的內部架構">
+<meta property="og:type" content="article">
+<meta property="og:title" content="SQL Performance Tuning">
+<meta property="og:url" content="http://example.com/2023/05/15/SQLP/index.html">
+<meta property="og:site_name" content="達達的家">
+<meta property="og:description" content="SQL Performance Tuning執行計畫概論當Query 傳送到資料庫執行時，Query Optimizer 會針對 query 語句進行計算， 怎樣的執行方式會相對比較少的成本 Cost，決定相對比較少成本的 Cost 之後就開始執行，產生執行計畫。  Link: SQL Query的內部架構">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="https://i.imgur.com/Rn2zVSs.png">
+<meta property="og:image" content="https://i.imgur.com/Rwz8tyC.png">
+<meta property="og:image" content="https://i.imgur.com/eY3pfmB.png">
+<meta property="og:image" content="https://i.imgur.com/CPbVKyF.png">
+<meta property="og:image" content="https://i.imgur.com/ky0MrSs.png">
+<meta property="og:image" content="https://i.imgur.com/7Ig4ZgV.png">
+<meta property="og:image" content="https://i.imgur.com/2UtHlFt.png">
+<meta property="og:image" content="https://i.imgur.com/y9XLHby.png">
+<meta property="og:image" content="https://i.imgur.com/hbfUC9i.png">
+<meta property="og:image" content="https://i.imgur.com/RKyXeCj.png">
+<meta property="og:image" content="https://i.imgur.com/vHK62PE.png">
+<meta property="og:image" content="https://i.imgur.com/Jh0k7y2.png">
+<meta property="og:image" content="https://i.imgur.com/nPZtS48.png">
+<meta property="og:image" content="https://i.imgur.com/6AdaqBZ.png">
+<meta property="og:image" content="https://i.imgur.com/IPOCfPX.png">
+<meta property="article:published_time" content="2023-05-15T10:43:04.000Z">
+<meta property="article:modified_time" content="2023-05-15T10:44:08.191Z">
+<meta property="article:author" content="YD Chen">
+<meta property="article:tag" content="sql">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://i.imgur.com/Rn2zVSs.png">
+
+<link rel="canonical" href="http://example.com/2023/05/15/SQLP/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'en'
+  };
+</script>
+
+  <title>SQL Performance Tuning | 達達的家</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">達達的家</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">一個耍廢的地方</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>Home</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives<span class="badge">2</span></a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://example.com/2023/05/15/SQLP/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/IMG_0738.JPG">
+      <meta itemprop="name" content="YD Chen">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="達達的家">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          SQL Performance Tuning
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">Posted on</span>
+              
+
+              <time title="Created: 2023-05-15 18:43:04 / Modified: 18:44:08" itemprop="dateCreated datePublished" datetime="2023-05-15T18:43:04+08:00">2023-05-15</time>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h1 id="SQL-Performance-Tuning"><a href="#SQL-Performance-Tuning" class="headerlink" title="SQL Performance Tuning"></a>SQL Performance Tuning</h1><h2 id="執行計畫概論"><a href="#執行計畫概論" class="headerlink" title="執行計畫概論"></a>執行計畫概論</h2><p>當Query 傳送到資料庫執行時，Query Optimizer 會針對 query 語句進行計算，</p>
+<p>怎樣的執行方式會相對比較少的成本 Cost，決定相對比較少成本的 Cost 之後就開始執行，產生執行計畫。</p>
+<p><img src="https://i.imgur.com/Rn2zVSs.png"></p>
+<p>Link: <a target="_blank" rel="noopener" href="https://www.qa-knowhow.com/?p=135">SQL Query的內部架構</a></p>
+<span id="more"></span>
+<p>SQL Server有提供以下功能:</p>
+<ul>
+<li>預估執行計畫</li>
+<li>包括實際執行計畫</li>
+<li>Live Query</li>
+</ul>
+<p>通常使用包括實際執行計畫<br><img src="https://i.imgur.com/Rwz8tyC.png"></p>
+<p>產生執行計畫<br><img src="https://i.imgur.com/eY3pfmB.png"></p>
+<p>:::success</p>
+<ul>
+<li>Actual Number of Rows &#x3D; Estimated Number of Rows<br>是評估執行計畫是否合適的指標之一，如果差異太大可能是因為統計資訊過於老舊，需要更新統計資訊。<br>:::</li>
+</ul>
+<h4 id="產生執行計畫範例與評估指標"><a href="#產生執行計畫範例與評估指標" class="headerlink" title="產生執行計畫範例與評估指標"></a>產生執行計畫範例與評估指標</h4><p><a target="_blank" rel="noopener" href="https://www.qa-knowhow.com/?p=494">範例連結</a><br>假設有3個query，產生的執行計畫如下:<br><img src="https://i.imgur.com/CPbVKyF.png"><br>此執行計畫有幾個指標:</p>
+<ol>
+<li><p><strong>Query Cost (relative to the batch)</strong></p>
+<p> Query 1: Query Cost (relative to the batch): 41%</p>
+</li>
+</ol>
+<p>Query 2: Query Cost (relative to the batch): 42%<br>Query 3: Query Cost (relative to the batch): 17%</p>
+<pre><code> 相對來說，Query 1 執行所需的成本為整體的 41%。
+
+而 Query 3是這三個query 中有效率的執行，因為相對成本只有 17%
+</code></pre>
+<ol start="2">
+<li><p><strong>傳回資料的多寡</strong></p>
+<p> 每個 Operation 右到左的箭頭線條的粗細代表資料傳回的多寡。這個例子，Query 1,2 的連線箭頭相對於 Query 3 粗，因此 Query 1,2 所回傳的資料量也比較大</p>
+</li>
+<li><p><strong>Operation</strong></p>
+<p> Operation 為 Execution plan 中每一個方塊的執行動作，資料流從右到左執行相所需要的資料運算取得</p>
+</li>
+</ol>
+<p>例如:<br>Query 1,2 最右邊的 operation 為 “Clustered Index Scan”<br>Query 3 則是 “Clustered Index Seek”<br>    &gt;以Performance 來說，大部分的情況 Seek 的效能會比 Scan 好很多，也就是我們會比較不希望看到 Scan 的出現，例如 Index Scan or Table Scan等</p>
+<ol start="4">
+<li><p><strong>Estimated&#x2F;Actual Number of Rows</strong></p>
+<p> Query optimizer 會對目前的資料狀態進行統計分析計算相關成本，因此統計資訊抽樣的資訊是否可以代表實際資料量就很重要.<br> 因為統計資訊抽樣的誤差，也會導致optimizer 選擇錯誤的 Execution plan.</p>
+</li>
+</ol>
+<p>那麼要如何知道目前的統計抽樣是否符合實際狀況呢?</p>
+<pre><code>![](https://i.imgur.com/NTnvx5p.png)
+
+
+於最右邊的 operation (這個例子為 clustered index)，Tooltip 顯示
+
+Number of estimated Row: 290
+Number of Actual Row: 290
+這兩個值越接近，表示統計抽樣資訊越代表實際執行狀況。
+
+如果這兩個值差異很大，表示統計抽樣資訊有些失真。
+
+資料庫管理員可以考慮手動更新該資料表的統計資訊。
+</code></pre>
+<p>:::info</p>
+<ul>
+<li><p>Clustered Index(目錄)<br>每個 Table 只能有一個 Clustered Index，Table 資料就會依據 Clustered Index 的方式排列，這好比書籍的目錄，每本書只能有一個目錄，因為整本書會依照這個目錄排序。</p>
+</li>
+<li><p>Non Clustered Index(附錄)<br>每個 Table 能有許多 Non-Clustered Index，這好比書集後面的索引目錄，每本書可以有很多種索引目錄，例如依照字母排序、依照附錄A、依照附錄B。</p>
+</li>
+<li><p><a target="_blank" rel="noopener" href="https://dotblogs.com.tw/supershowwei/2016/01/25/155054">表格參考連結</a><br>:::</p>
+</li>
+</ul>
+<h2 id="執行成本評估"><a href="#執行成本評估" class="headerlink" title="執行成本評估"></a>執行成本評估</h2><h4 id="sql指令"><a href="#sql指令" class="headerlink" title="sql指令"></a>sql指令</h4><p>可以下Sql指令觀看io成本和CPU time.</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">set statistics io on</span><br><span class="line">set statistics time on</span><br></pre></td></tr></table></figure>
+<p>如下:</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">(9 row(s) affected)</span><br><span class="line">Table &#x27;TBL_CLIENT_INFO&#x27;. Scan count 1, logical reads 4, physical reads 0, read-ahead reads 0, lob logical reads 0, lob physical reads 0, lob read-ahead reads 0.</span><br></pre></td></tr></table></figure>
+
+<h4 id="io成本"><a href="#io成本" class="headerlink" title="io成本"></a>io成本</h4><p> 成本:logical reads 4 (pages) x 8kb &#x3D; 32kb<br> 根據MSDN：<br>logical reads為Number of pages read from the data cache<br>physical reads為Number of pages read from disk<br>當要Query的data不在Cache之中時，就會到Disk去拿資料而產生Physical Reads。反之若欲Query的data存在於Cache之中時，就會產生Logical Reads。</p>
+<h5 id="logical-read"><a href="#logical-read" class="headerlink" title="logical read"></a>logical read</h5><ol>
+<li>從資料快取中讀取的page(非筆數)。–&gt; 會包含 physical reads 及 read-ahead reads</li>
+<li>數字愈小愈好</li>
+<li>數字保持一致，是效能調校的重要參考</li>
+</ol>
+<blockquote>
+<p>Join 會消耗大量io</p>
+</blockquote>
+<h4 id="RetrievedFromCache"><a href="#RetrievedFromCache" class="headerlink" title="RetrievedFromCache"></a>RetrievedFromCache</h4><p>在Select&gt;Properties<br>RetrievedFromCache false代表從sql procedure 取資料(建議)</p>
+<h4 id="Max-degree-of-parallelism"><a href="#Max-degree-of-parallelism" class="headerlink" title="Max degree of parallelism"></a>Max degree of parallelism</h4><p><img src="https://i.imgur.com/ky0MrSs.png"></p>
+<p>代表執行時會占用多少CPU<br>不建議用0，若一次大的query會占用全部CPU.可設1,4,8.</p>
+<h4 id="更新統計值"><a href="#更新統計值" class="headerlink" title="更新統計值"></a>更新統計值</h4><p>用Query Optimizer自動化計算<br>統計更新值需常更新，保持Execution Plan的健壯</p>
+<p>Statistic &gt; Property</p>
+<h2 id="Index-Scan-v-s-Index-Seek"><a href="#Index-Scan-v-s-Index-Seek" class="headerlink" title="Index Scan v.s. Index Seek"></a>Index Scan v.s. Index Seek</h2><p>Scan 依序掃描 1,2,3…<br><img src="https://i.imgur.com/7Ig4ZgV.png"></p>
+<p>Seek 二分搜尋法<br><img src="https://i.imgur.com/2UtHlFt.png"></p>
+<p>一般來說Seek 比Scan好。但返回資料量趨近於table時，用Scan較佳。</p>
+<p><a target="_blank" rel="noopener" href="https://blog.darkthread.net/blog/index-scan-vs-seek/">為什麼ExecutionPlan有時用indexScan,有時用indexSeek? </a></p>
+<blockquote>
+<p>最差的為Clustered Index Scan</p>
+</blockquote>
+<h2 id="Index-索引"><a href="#Index-索引" class="headerlink" title="Index 索引"></a>Index 索引</h2><h4 id="建立Index"><a href="#建立Index" class="headerlink" title="建立Index"></a>建立Index</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">CREATE INDEX &quot;索引名&quot; ON &quot;表格名&quot; (欄位名);</span><br></pre></td></tr></table></figure>
+<p>可在名稱前加一個字首，例如 “IDX_” ，來避免與資料庫中的其他物件混淆。</p>
+<h4 id="Clustered-Index-v-s-Non-Clustered-Index"><a href="#Clustered-Index-v-s-Non-Clustered-Index" class="headerlink" title="Clustered Index v.s. Non Clustered Index"></a>Clustered Index v.s. Non Clustered Index</h4><ul>
+<li><p>Clustered Index(目錄)<br>每個 Table 只能有一個 Clustered Index，Table 資料就會依據 Clustered Index 的方式排列，這好比書籍的目錄，每本書只能有一個目錄，因為整本書會依照這個目錄排序。<br>如果一個資料表沒有建Clustered Index則資料會存入硬碟，稱為heap.</p>
+</li>
+<li><p>Non Clustered Index(附錄)<br>每個 Table 能有許多 Non-Clustered Index，這好比書集後面的索引目錄，每本書可以有很多種索引目錄，例如依照字母排序、依照附錄A、依照附錄B。</p>
+</li>
+</ul>
+<h4 id="選擇性-Selectivity"><a href="#選擇性-Selectivity" class="headerlink" title="選擇性 Selectivity"></a>選擇性 Selectivity</h4><p>選擇性是一種獨特性的衡量，大多用來描述述詞，如果要計算的話就是符合資料列&#x2F;總資料列的比率。</p>
+<p>假設有個員工資料表，總共100位員工，男女各半，資料表上有ID(身分證或護照)及性別欄位，如果述詞為” ID&#x3D; ‘某個員工ID’ “，可以預期只會回傳一個員工，選擇性為1&#x2F;100&#x3D;0.01，表示有較高的獨特性，所以ID欄位有高選擇性，如果述詞為” 性別 ＝ ‘男生’ “，可以預期將會回傳50位員工，選擇性為50&#x2F;100&#x3D;0.5，有較低的獨特性，所以性別欄位的是低選擇性</p>
+<p>大資料裡找小資料，使用索引是很有效率的，所以通常述詞裡有高選擇性欄位，就很適合拿來做選索引欄位，像前述所提的ID欄位，很適合拿來做索引欄位，性別欄位就較不適合。</p>
+<h4 id="複合索引"><a href="#複合索引" class="headerlink" title="複合索引"></a>複合索引</h4><p>可以有多個欄位做Index，要注意第一個欄位選擇性必須高。</p>
+<h4 id="涵蓋索引"><a href="#涵蓋索引" class="headerlink" title="涵蓋索引"></a>涵蓋索引</h4><p>INCLUDE</p>
+<p>Reference:</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://dotblogs.com.tw/ricochen/2015/07/05/151734">複合索引第一欄位重要性</a></li>
+<li><a target="_blank" rel="noopener" href="https://blogs.technet.microsoft.com/technet_taiwan/2015/01/22/tsql-3/">如何寫出高效能 TSQL – 關於索引不可不知道的事</a></li>
+</ul>
+<h2 id="清除資料庫的快取"><a href="#清除資料庫的快取" class="headerlink" title="清除資料庫的快取"></a>清除資料庫的快取</h2><p>清除Buffer</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">dbcc dropcleanbuffers</span><br></pre></td></tr></table></figure>
+
+<p>清除Plan Cache</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">dbcc freeproccache</span><br></pre></td></tr></table></figure>
+
+<h2 id="SQL-管理"><a href="#SQL-管理" class="headerlink" title="SQL 管理"></a>SQL 管理</h2><h4 id="Activity-Monitor"><a href="#Activity-Monitor" class="headerlink" title="Activity Monitor"></a>Activity Monitor</h4><p><img src="https://i.imgur.com/y9XLHby.png"></p>
+<h4 id="SQLOS-的三種狀態"><a href="#SQLOS-的三種狀態" class="headerlink" title="SQLOS 的三種狀態"></a>SQLOS 的三種狀態</h4><p>Status</p>
+<ul>
+<li>RUNNING</li>
+<li>RUNNABLE </li>
+<li>SUSPENDED</li>
+</ul>
+<p>Execution Model-One Scheduler</p>
+<ul>
+<li>收銀員-Scheduler(CPU)</li>
+<li>正在結帳 - RUNNING</li>
+<li>排隊者 - RUNNABLE</li>
+<li>商品標籤掉了，等在旁邊的人 - SUSPENDED 並給予WAIT TIME，若條件滿足，重新加入RUNNABLE.</li>
+</ul>
+<p>一個session 可能不只做一件事，可能同時等待兩張table(分配到2個scheduler)，等完結果後JOIN。要看Execution Plan。</p>
+<p><a target="_blank" rel="noopener" href="https://www.cnblogs.com/CreateMyself/p/6117352.html">移除lookup來增進效能</a></p>
+<h2 id="查找-Lookup"><a href="#查找-Lookup" class="headerlink" title="查找 Lookup"></a>查找 Lookup</h2><p>若查詢的條件Where為Non clustered Index，<br>SELECT 語句中，有不是Non clustered Index的欄位時，SQL會回到基表以clustered Index 或RID 取回那些欄位的資料，稱為lookup.<br>為優化執行計畫，提高查詢效能，需移除Lookup的Operator.</p>
+<h4 id="Bookmark-lookup"><a href="#Bookmark-lookup" class="headerlink" title="Bookmark lookup"></a>Bookmark lookup</h4><p>用include包含Column來減少bookmark lookup，要注意新增太多欄位會有更吃效能的問題。</p>
+<h4 id="RID-lookup"><a href="#RID-lookup" class="headerlink" title="RID lookup"></a>RID lookup</h4><p>看到RID代表此table沒有clustered index.<br>heap table 通常是RID.</p>
+<h4 id="Key-lookup"><a href="#Key-lookup" class="headerlink" title="Key lookup"></a>Key lookup</h4><h2 id="Stream-Aggregate-amp-Hash-Aggregate"><a href="#Stream-Aggregate-amp-Hash-Aggregate" class="headerlink" title="Stream Aggregate &amp; Hash Aggregate"></a>Stream Aggregate &amp; Hash Aggregate</h2><p>使用聚合運算 SUM,COUNT,AVG,MAX,MIN時使用的operator<br>Stream Aggregate<br>Hash Aggregate - inMemory</p>
+<p>Reference:</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://yq.aliyun.com/articles/318131">大陸網</a></li>
+</ul>
+<h2 id="資料表連結方式"><a href="#資料表連結方式" class="headerlink" title="資料表連結方式"></a>資料表連結方式</h2><p>通常是採用INNER JOIN</p>
+<p><img src="https://i.imgur.com/hbfUC9i.png"><br><img src="https://i.imgur.com/RKyXeCj.png"></p>
+<h2 id="常見的執行計畫運算操作"><a href="#常見的執行計畫運算操作" class="headerlink" title="常見的執行計畫運算操作"></a>常見的執行計畫運算操作</h2><ul>
+<li>Nested Loop Join</li>
+<li>Hash Join</li>
+<li>Merge Join</li>
+</ul>
+<p><img src="https://i.imgur.com/vHK62PE.png"></p>
+<ul>
+<li><p>Nested Loop Join<br>逐一比較<br>效率低下原因:</p>
+<ol>
+<li>大table + 大table</li>
+<li>使用LIKE 語法</li>
+<li>統計值過舊誤判</li>
+</ol>
+</li>
+<li><p>Hash Join<br>在memory分小組比對hash</p>
+</li>
+<li><p>Merge Join<br>先排序再比對</p>
+</li>
+</ul>
+<h2 id="SQL-執行方式-Literal-Variable-Parameter"><a href="#SQL-執行方式-Literal-Variable-Parameter" class="headerlink" title="SQL 執行方式-Literal, Variable, Parameter"></a>SQL 執行方式-Literal, Variable, Parameter</h2><p>Link: <a target="_blank" rel="noopener" href="https://blog.darkthread.net/blog/literal-var-param-and-exec-plan/">黑暗執行緒</a></p>
+<h4 id="Literal"><a href="#Literal" class="headerlink" title="Literal:"></a>Literal:</h4><p>把比對值寫在指令。</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> ProductID,  OrderQty <span class="keyword">FROM</span> Sales.SalesOrderDetail </span><br><span class="line"><span class="keyword">WHERE</span> ProductID <span class="operator">=</span> <span class="number">870</span> <span class="comment">--4688筆</span></span><br><span class="line"> </span><br><span class="line"><span class="keyword">SELECT</span> ProductID,  OrderQty <span class="keyword">FROM</span> Sales.SalesOrderDetail </span><br><span class="line"><span class="keyword">WHERE</span> ProductID <span class="operator">=</span> <span class="number">897</span> <span class="comment">--2筆</span></span><br></pre></td></tr></table></figure>
+<p>每次SQL來就要編譯一次，資源消耗大，但能確保執行計畫正確。有可能被sql injection。</p>
+<h4 id="Variable"><a href="#Variable" class="headerlink" title="Variable:"></a>Variable:</h4><p>將變數傳入比對值:</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">DECLARE</span> <span class="variable">@p</span> <span class="type">INT</span></span><br><span class="line"> </span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@p</span> <span class="operator">=</span> <span class="number">870</span></span><br><span class="line"><span class="keyword">SELECT</span> ProductID,  OrderQty <span class="keyword">FROM</span> Sales.SalesOrderDetail </span><br><span class="line"><span class="keyword">WHERE</span> ProductID <span class="operator">=</span> <span class="variable">@p</span> <span class="comment">--4688筆</span></span><br><span class="line"> </span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@p</span> <span class="operator">=</span> <span class="number">897</span></span><br><span class="line"><span class="keyword">SELECT</span> ProductID,  OrderQty <span class="keyword">FROM</span> Sales.SalesOrderDetail </span><br><span class="line"><span class="keyword">WHERE</span> ProductID <span class="operator">=</span> <span class="variable">@p</span> <span class="comment">--2筆</span></span><br></pre></td></tr></table></figure>
+<p>對SQL來說@p在評估執行計畫時是看不到的，所以可能會用賭博的方式決定執行計畫(猜哪個cost 小)。</p>
+<h4 id="Parameter"><a href="#Parameter" class="headerlink" title="Parameter"></a>Parameter</h4><p>若是Stored Procedure，由於邏輯固定，傳入的參數可以預先分析，因此可以依照參數值決定執行計畫，稱為Parameter Sniffing。</p>
+<p>:::info<br>Stored Procedure</p>
+<ul>
+<li>第一次執行時編譯執行計畫</li>
+<li>因為語法固定，大部分情況都可重用執行計畫。省下重複編譯的時間</li>
+<li>執行時建議加上Schema，如dbo.myprocedure。能讓sql server更能直接存取特定程序。</li>
+</ul>
+<p>:::</p>
+<h4 id="Parameter-Sniffing-問題"><a href="#Parameter-Sniffing-問題" class="headerlink" title="Parameter Sniffing 問題"></a>Parameter Sniffing 問題</h4><p>Strore Procedure 第一個執行計畫 被cache住，會影響第二個執行計畫。</p>
+<p><img src="https://i.imgur.com/Jh0k7y2.png"></p>
+<p>Auto Update Statistic<br>20%的資料變動，SQL Server會重編執行計畫。</p>
+<p>Update Statistic<br>更新統計值<br>Rebuild Index task -&gt; Update Statistic task(只要column ,不用all)</p>
+<p>Full scan ,Sample</p>
+<p><img src="https://i.imgur.com/nPZtS48.png"><br><img src="https://i.imgur.com/6AdaqBZ.png"></p>
+<p>QueryStore</p>
+<p><img src="https://i.imgur.com/IPOCfPX.png"></p>
+<p>Auto Create Statistic<br>WA_Sys 單欄位<br>Auto Update Statistic Async</p>
+<h2 id="統計資訊-statistics"><a href="#統計資訊-statistics" class="headerlink" title="統計資訊 statistics"></a>統計資訊 statistics</h2><p>dbcc show_statistics</p>
+<p>一個statistic 會對應一個index</p>
+<p>Report -&gt;Standard Report -&gt; Memory Comsumption</p>
+<p>SQL 希望晉量從buffer(memory)抓值<br>Target Server Memory<br>Total Server Memory</p>
+<h4 id="Optimize-for-Ad-hoc-workload"><a href="#Optimize-for-Ad-hoc-workload" class="headerlink" title="Optimize for Ad hoc workload"></a>Optimize for Ad hoc workload</h4><p>避免buffer內有一次性的cache plan</p>
+<ul>
+<li>Compiled Plan 執行兩次以上, cache plan 存這</li>
+<li>Compiled Plan Stub 只執行一次，cache plan存這</li>
+</ul>
+<p>Memory Grant</p>
+<h2 id="Live-Query"><a href="#Live-Query" class="headerlink" title="Live Query"></a>Live Query</h2><p>可以看到執行sql時資料流變化</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/sql/" rel="tag"># sql</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2023/05/15/DefiSummit/" rel="prev" title="DefiSummit">
+      <i class="fa fa-chevron-left"></i> DefiSummit
+    </a></div>
+      <div class="post-nav-item"></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#SQL-Performance-Tuning"><span class="nav-number">1.</span> <span class="nav-text">SQL Performance Tuning</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%9F%B7%E8%A1%8C%E8%A8%88%E7%95%AB%E6%A6%82%E8%AB%96"><span class="nav-number">1.1.</span> <span class="nav-text">執行計畫概論</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%94%A2%E7%94%9F%E5%9F%B7%E8%A1%8C%E8%A8%88%E7%95%AB%E7%AF%84%E4%BE%8B%E8%88%87%E8%A9%95%E4%BC%B0%E6%8C%87%E6%A8%99"><span class="nav-number">1.1.0.1.</span> <span class="nav-text">產生執行計畫範例與評估指標</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%9F%B7%E8%A1%8C%E6%88%90%E6%9C%AC%E8%A9%95%E4%BC%B0"><span class="nav-number">1.2.</span> <span class="nav-text">執行成本評估</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#sql%E6%8C%87%E4%BB%A4"><span class="nav-number">1.2.0.1.</span> <span class="nav-text">sql指令</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#io%E6%88%90%E6%9C%AC"><span class="nav-number">1.2.0.2.</span> <span class="nav-text">io成本</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#logical-read"><span class="nav-number">1.2.0.2.1.</span> <span class="nav-text">logical read</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#RetrievedFromCache"><span class="nav-number">1.2.0.3.</span> <span class="nav-text">RetrievedFromCache</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Max-degree-of-parallelism"><span class="nav-number">1.2.0.4.</span> <span class="nav-text">Max degree of parallelism</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%9B%B4%E6%96%B0%E7%B5%B1%E8%A8%88%E5%80%BC"><span class="nav-number">1.2.0.5.</span> <span class="nav-text">更新統計值</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Index-Scan-v-s-Index-Seek"><span class="nav-number">1.3.</span> <span class="nav-text">Index Scan v.s. Index Seek</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Index-%E7%B4%A2%E5%BC%95"><span class="nav-number">1.4.</span> <span class="nav-text">Index 索引</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%BB%BA%E7%AB%8BIndex"><span class="nav-number">1.4.0.1.</span> <span class="nav-text">建立Index</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Clustered-Index-v-s-Non-Clustered-Index"><span class="nav-number">1.4.0.2.</span> <span class="nav-text">Clustered Index v.s. Non Clustered Index</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E9%81%B8%E6%93%87%E6%80%A7-Selectivity"><span class="nav-number">1.4.0.3.</span> <span class="nav-text">選擇性 Selectivity</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E8%A4%87%E5%90%88%E7%B4%A2%E5%BC%95"><span class="nav-number">1.4.0.4.</span> <span class="nav-text">複合索引</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%B6%B5%E8%93%8B%E7%B4%A2%E5%BC%95"><span class="nav-number">1.4.0.5.</span> <span class="nav-text">涵蓋索引</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%B8%85%E9%99%A4%E8%B3%87%E6%96%99%E5%BA%AB%E7%9A%84%E5%BF%AB%E5%8F%96"><span class="nav-number">1.5.</span> <span class="nav-text">清除資料庫的快取</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#SQL-%E7%AE%A1%E7%90%86"><span class="nav-number">1.6.</span> <span class="nav-text">SQL 管理</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#Activity-Monitor"><span class="nav-number">1.6.0.1.</span> <span class="nav-text">Activity Monitor</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#SQLOS-%E7%9A%84%E4%B8%89%E7%A8%AE%E7%8B%80%E6%85%8B"><span class="nav-number">1.6.0.2.</span> <span class="nav-text">SQLOS 的三種狀態</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%9F%A5%E6%89%BE-Lookup"><span class="nav-number">1.7.</span> <span class="nav-text">查找 Lookup</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#Bookmark-lookup"><span class="nav-number">1.7.0.1.</span> <span class="nav-text">Bookmark lookup</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#RID-lookup"><span class="nav-number">1.7.0.2.</span> <span class="nav-text">RID lookup</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Key-lookup"><span class="nav-number">1.7.0.3.</span> <span class="nav-text">Key lookup</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Stream-Aggregate-amp-Hash-Aggregate"><span class="nav-number">1.8.</span> <span class="nav-text">Stream Aggregate &amp; Hash Aggregate</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%B3%87%E6%96%99%E8%A1%A8%E9%80%A3%E7%B5%90%E6%96%B9%E5%BC%8F"><span class="nav-number">1.9.</span> <span class="nav-text">資料表連結方式</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%B8%B8%E8%A6%8B%E7%9A%84%E5%9F%B7%E8%A1%8C%E8%A8%88%E7%95%AB%E9%81%8B%E7%AE%97%E6%93%8D%E4%BD%9C"><span class="nav-number">1.10.</span> <span class="nav-text">常見的執行計畫運算操作</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#SQL-%E5%9F%B7%E8%A1%8C%E6%96%B9%E5%BC%8F-Literal-Variable-Parameter"><span class="nav-number">1.11.</span> <span class="nav-text">SQL 執行方式-Literal, Variable, Parameter</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#Literal"><span class="nav-number">1.11.0.1.</span> <span class="nav-text">Literal:</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Variable"><span class="nav-number">1.11.0.2.</span> <span class="nav-text">Variable:</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Parameter"><span class="nav-number">1.11.0.3.</span> <span class="nav-text">Parameter</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Parameter-Sniffing-%E5%95%8F%E9%A1%8C"><span class="nav-number">1.11.0.4.</span> <span class="nav-text">Parameter Sniffing 問題</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B5%B1%E8%A8%88%E8%B3%87%E8%A8%8A-statistics"><span class="nav-number">1.12.</span> <span class="nav-text">統計資訊 statistics</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#Optimize-for-Ad-hoc-workload"><span class="nav-number">1.12.0.1.</span> <span class="nav-text">Optimize for Ad hoc workload</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Live-Query"><span class="nav-number">1.13.</span> <span class="nav-text">Live Query</span></a></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="YD Chen"
+      src="/images/IMG_0738.JPG">
+  <p class="site-author-name" itemprop="name">YD Chen</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">2</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">1</span>
+        <span class="site-state-item-name">tags</span>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/yenta" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;yenta" rel="noopener" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:notmymail@gmail.com" title="E-Mail → mailto:notmymail@gmail.com" rel="noopener" target="_blank"><i class="fa fa-envelope fa-fw"></i>E-Mail</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2023</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">YD Chen</span>
+</div>
+  <div class="powered-by">Powered by <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://pisces.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Pisces</a>
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>
